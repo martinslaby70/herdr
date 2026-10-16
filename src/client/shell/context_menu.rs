@@ -5,7 +5,7 @@ impl ClientContextMenuOverlay {
         use ClientContextMenuAction as Action;
 
         let item = |label, action| ClientContextMenuItem { label, action };
-        match &self.target {
+        let mut items = match &self.target {
             ClientContextMenuTarget::Workspace { is_git: false, .. } => {
                 vec![item("Rename", Action::Rename), item("Close", Action::Close)]
             }
@@ -79,7 +79,15 @@ impl ClientContextMenuOverlay {
                 ]);
                 items
             }
+        };
+        if let ClientContextMenuTarget::Workspace { archived, .. } = &self.target {
+            items.push(if *archived {
+                item("Unarchive space", Action::Unarchive)
+            } else {
+                item("Archive space", Action::Archive)
+            });
         }
+        items
     }
 }
 
@@ -105,6 +113,7 @@ impl ClientShellState {
                 })
         });
         let close_group = super::sidebar::workspace_close_is_group(snapshot, workspace);
+        let archived = workspace.archived_at.is_some();
         let collapsed = worktree.is_some_and(|worktree| {
             self.group_is_collapsed(&self.active_endpoint_id, &worktree.key)
         });
@@ -116,6 +125,7 @@ impl ClientShellState {
                 has_worktree_children,
                 close_group,
                 collapsed,
+                archived,
             },
             x,
             y,
@@ -259,6 +269,17 @@ impl ClientShellState {
             }
             ClientContextMenuAction::RemoveWorktree => {
                 self.begin_worktree_action_for(KeybindAction::RemoveWorktree, workspace_id, outcome)
+            }
+            ClientContextMenuAction::Archive | ClientContextMenuAction::Unarchive => {
+                self.push_endpoint_method(
+                    crate::api::schema::Method::WorkspaceSetArchived(
+                        crate::api::schema::WorkspaceSetArchivedParams {
+                            workspace_id,
+                            archived: action == ClientContextMenuAction::Archive,
+                        },
+                    ),
+                    outcome,
+                );
             }
             ClientContextMenuAction::ToggleGroup => {
                 let key = self.snapshot.as_deref().and_then(|snapshot| {

@@ -1474,8 +1474,9 @@ impl AppState {
                 visible_working,
                 process_exited,
                 observed_at,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
+            } => {
+                self.note_pane_agent_event(pane_id);
+                self.update_terminal_state(pane_id, |terminal| {
                     Some(terminal.set_detected_state_with_screen_signals_at(
                         agent,
                         state,
@@ -1487,7 +1488,8 @@ impl AppState {
                     ))
                 })
                 .into_iter()
-                .collect(),
+                .collect()
+            }
             AppEvent::HookStateReported {
                 pane_id,
                 source,
@@ -1497,6 +1499,7 @@ impl AppState {
                 seq,
                 session_ref,
             } => {
+                self.note_pane_agent_event(pane_id);
                 if crate::agent_resume::is_reserved_native_state_source(&source, &agent_label) {
                     self.update_terminal_state(pane_id, |terminal| {
                         terminal.set_agent_session_ref(source, agent_label, session_ref, seq)
@@ -2999,6 +3002,30 @@ mod tests {
         assert_eq!(state.workspaces.len(), 1);
         state.assert_invariants_for_test();
     }
+    #[test]
+    fn agent_state_events_unarchive_unless_restore_is_settling() {
+        let mut state = app_with_workspaces(&["test"]);
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let changed = || AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Pi),
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        };
+        state.set_workspace_archived(0, true, std::time::SystemTime::now());
+
+        state.restore_settles_at = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        state.handle_app_event(changed());
+        assert!(state.workspaces[0].archived_at.is_some());
+
+        state.restore_settles_at = std::time::Instant::now();
+        state.handle_app_event(changed());
+        assert_eq!(state.workspaces[0].archived_at, None);
+    }
+
     #[test]
     fn state_changed_updates_pane() {
         let mut state = app_with_workspaces(&["test"]);

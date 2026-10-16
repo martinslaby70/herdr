@@ -3,6 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use ratatui::layout::Direction;
 use tokio::sync::{mpsc, Notify};
@@ -194,6 +195,10 @@ pub struct Workspace {
     pub(crate) cached_git_space: Option<GitSpaceMetadata>,
     /// Explicit Herdr-managed worktree grouping provenance.
     pub worktree_space: Option<WorktreeSpaceMembership>,
+    /// When the user or the inactivity sweep archived this space. `None` means active.
+    pub archived_at: Option<SystemTime>,
+    /// Last user input or agent activity, used by the inactivity sweep.
+    pub last_activity_at: SystemTime,
     pub(crate) metadata_tokens: crate::metadata_tokens::MetadataTokens,
     pub(crate) metadata_token_sequences: HashMap<String, u64>,
     /// Public pane numbers within this workspace. Closed pane numbers are not reused.
@@ -223,6 +228,15 @@ impl DerefMut for Workspace {
 }
 
 impl Workspace {
+    /// `archived_at` as Unix seconds for API and wire snapshots.
+    pub(crate) fn archived_at_secs(&self) -> Option<u64> {
+        self.archived_at.map(|archived_at| {
+            archived_at
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs())
+        })
+    }
+
     fn adjust_active_tab_after_removal(&mut self, removed_idx: usize) {
         if self.tabs.is_empty() {
             self.active_tab = 0;
@@ -260,6 +274,8 @@ impl Workspace {
             cached_git_ahead_behind: None,
             cached_git_space,
             worktree_space: None,
+            archived_at: None,
+            last_activity_at: SystemTime::now(),
             metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
             metadata_token_sequences: HashMap::new(),
             public_pane_numbers,
@@ -412,6 +428,8 @@ impl Workspace {
                 cached_git_ahead_behind: None,
                 cached_git_space,
                 worktree_space: None,
+                archived_at: None,
+                last_activity_at: SystemTime::now(),
                 metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
                 metadata_token_sequences: HashMap::new(),
                 public_pane_numbers,
@@ -1201,6 +1219,8 @@ impl Workspace {
             cached_git_ahead_behind: None,
             cached_git_space: None,
             worktree_space: None,
+            archived_at: None,
+            last_activity_at: SystemTime::now(),
             metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
             metadata_token_sequences: HashMap::new(),
             public_pane_numbers,

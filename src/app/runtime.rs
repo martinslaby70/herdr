@@ -1,7 +1,4 @@
-use std::time::Instant;
-
-#[cfg(test)]
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use super::{
     background_update_check_enabled, App, AUTO_UPDATE_CHECK_INTERVAL, MIN_RENDER_INTERVAL,
@@ -20,6 +17,11 @@ fn retain_detached_process_after_wait(
         }
     }
 }
+
+pub(crate) const ARCHIVE_SWEEP_STARTUP_DELAY: Duration = Duration::from_secs(5 * 60);
+pub(crate) const ARCHIVE_SWEEP_INTERVAL: Duration = Duration::from_secs(60 * 60);
+pub(crate) const AUTO_ARCHIVE_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+pub(crate) const RESTORE_SETTLE: Duration = Duration::from_secs(60);
 
 impl App {
     pub(crate) fn reap_finished_detached_processes(&mut self) {
@@ -69,6 +71,41 @@ impl App {
             self.emit_workspace_token_updated(ws_idx);
         }
         self.sync_agent_metadata_deadline();
+    }
+
+    pub(crate) fn run_archive_sweep(&mut self, now: Instant) -> bool {
+        if now < self.next_archive_sweep {
+            return false;
+        }
+        self.next_archive_sweep = now + ARCHIVE_SWEEP_INTERVAL;
+        let archived = self.state.archive_inactive_workspaces(SystemTime::now());
+        self.emit_archive_events();
+        // Persist refreshed last_activity_at values at least once per sweep.
+        self.state.mark_session_dirty();
+        archived
+    }
+
+    pub(crate) fn emit_archive_events(&mut self) {
+        for index in std::mem::take(&mut self.state.archive_transitions) {
+            let Some(workspace) = self.state.workspaces.get(index) else {
+                continue;
+            };
+            let archived = workspace.archived_at.is_some();
+            self.emit_event(crate::api::schema::EventEnvelope {
+                event: crate::api::schema::EventKind::WorkspaceArchiveChanged,
+                data: crate::api::schema::EventData::WorkspaceArchiveChanged {
+                    workspace_id: self.public_workspace_id(index),
+                    archived,
+                },
+            });
+        }
+    }
+
+    /// Input-path wrapper around [`AppState::note_workspace_input`] that also emits events.
+    pub(crate) fn note_workspace_input(&mut self, ws_idx: usize) -> bool {
+        let unarchived = self.state.note_workspace_input(ws_idx);
+        self.emit_archive_events();
+        unarchived
     }
 
     pub(crate) fn can_render_now(&self, now: Instant) -> bool {

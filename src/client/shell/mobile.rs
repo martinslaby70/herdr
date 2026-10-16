@@ -754,7 +754,11 @@ fn mobile_items(
         palette,
     ));
     for endpoint in super::aggregate_navigation::cached_endpoint_snapshots(endpoints) {
-        for entry in super::render::workspace_entries(endpoint.snapshot, &HashSet::new()) {
+        for entry in super::render::workspace_entries(
+            endpoint.snapshot,
+            &HashSet::new(),
+            super::state::ArchivedPlacement::Bottom,
+        ) {
             let Some(workspace) = endpoint.snapshot.workspaces.get(entry.index) else {
                 continue;
             };
@@ -837,7 +841,11 @@ fn mobile_items(
                                 .add_modifier(dim),
                         ),
                         Span::styled(
-                            status_icon(workspace.agent_status, config.status_indicators),
+                            if entry.archived {
+                                " "
+                            } else {
+                                status_icon(workspace.agent_status, config.status_indicators)
+                            },
                             Style::default().fg(status).bg(background).add_modifier(dim),
                         ),
                         Span::styled(" ", Style::default().bg(background)),

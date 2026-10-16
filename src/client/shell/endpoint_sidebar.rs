@@ -191,6 +191,7 @@ pub(super) fn render_collapsed(
                 endpoint_id: endpoint.endpoint_id.clone(),
                 workspace_id: workspace.workspace_id.clone(),
                 indented: false,
+                archived: false,
                 group_toggle: None,
             });
             y = y.saturating_add(1);
@@ -283,12 +284,16 @@ pub(super) fn render_expanded(
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
             rows.extend(
-                super::sidebar::workspace_entries(snapshot, collapsed_groups)
-                    .into_iter()
-                    .map(|entry| Row::Workspace {
-                        endpoint: endpoint_index,
-                        entry,
-                    }),
+                super::sidebar::workspace_entries(
+                    snapshot,
+                    collapsed_groups,
+                    ArchivedPlacement::Bottom,
+                )
+                .into_iter()
+                .map(|entry| Row::Workspace {
+                    endpoint: endpoint_index,
+                    entry,
+                }),
             );
         }
     }
@@ -502,6 +507,7 @@ pub(super) fn render_expanded(
                     endpoint_id: endpoint.endpoint_id.clone(),
                     workspace_id: workspace.workspace_id.clone(),
                     indented: entry.indented,
+                    archived: entry.archived,
                     group_toggle,
                 });
                 y = y

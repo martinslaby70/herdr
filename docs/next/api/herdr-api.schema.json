@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 22,
+  "protocol": 23,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -201,6 +201,26 @@
                 "workspace_id",
                 "insert_index",
                 "workspaces"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "archived": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "workspace_archive_changed",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "workspace_id",
+                "archived"
               ],
               "type": "object"
             },
@@ -734,6 +754,7 @@
             "workspace_closed",
             "workspace_renamed",
             "workspace_moved",
+            "workspace_archive_changed",
             "workspace_reordered",
             "workspace_focused",
             "worktree_created",
@@ -1081,6 +1102,14 @@
             },
             "agent_status": {
               "$ref": "#/schemas/event/$defs/AgentStatus"
+            },
+            "archived_at": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "focused": {
               "type": "boolean"
@@ -3965,6 +3994,18 @@
             {
               "properties": {
                 "type": {
+                  "const": "workspace.archive_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
                   "const": "workspace.reordered",
                   "type": "string"
                 }
@@ -4512,6 +4553,21 @@
           ],
           "type": "object"
         },
+        "WorkspaceSetArchivedParams": {
+          "properties": {
+            "archived": {
+              "type": "boolean"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "workspace_id",
+            "archived"
+          ],
+          "type": "object"
+        },
         "WorkspaceTarget": {
           "properties": {
             "workspace_id": {
@@ -4993,6 +5049,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/WorkspaceRenameParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "workspace.set_archived",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/WorkspaceSetArchivedParams"
             }
           },
           "required": [
@@ -6919,6 +6991,26 @@
             },
             {
               "properties": {
+                "archived": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "workspace_archive_changed",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "workspace_id",
+                "archived"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "before_workspace_id": {
                   "type": [
                     "string",
@@ -7462,6 +7554,7 @@
             "workspace_closed",
             "workspace_renamed",
             "workspace_moved",
+            "workspace_archive_changed",
             "workspace_reordered",
             "workspace_focused",
             "worktree_created",
@@ -10580,6 +10673,14 @@
             },
             "agent_status": {
               "$ref": "#/schemas/success_response/$defs/AgentStatus"
+            },
+            "archived_at": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "focused": {
               "type": "boolean"

@@ -113,10 +113,12 @@ impl ClientShellState {
                     .workspaces
                     .iter()
                     .enumerate()
+                    .filter(|(_, workspace)| workspace.archived_at.is_none())
                     .map(|(index, _)| WorkspaceEntry {
                         index,
                         indented: false,
                         last_child: false,
+                        archived: false,
                     })
                     .collect()
             } else {
@@ -126,7 +128,7 @@ impl ClientShellState {
                     self.collapsed_groups_for_endpoint(&endpoint.endpoint_id)
                         .unwrap_or(&empty_collapsed_groups)
                 };
-                render::workspace_entries(snapshot, collapsed_groups)
+                render::workspace_entries(snapshot, collapsed_groups, self.archived_placement())
             };
             for entry in entries {
                 targets.push(WorkspaceNavigationTarget {

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::api::schema::{
     EventData, EventEnvelope, EventKind, ResponseResult, WorkspaceCloseParams,
     WorkspaceCreateParams, WorkspaceMoveBlockParams, WorkspaceMoveParams, WorkspaceRenameParams,
-    WorkspaceReportMetadataParams, WorkspaceTarget,
+    WorkspaceReportMetadataParams, WorkspaceSetArchivedParams, WorkspaceTarget,
 };
 use crate::app::App;
 
@@ -122,6 +122,29 @@ impl App {
                 label: params.label,
             },
         });
+
+        encode_success(
+            id,
+            ResponseResult::WorkspaceInfo {
+                workspace: self.workspace_info(index),
+            },
+        )
+    }
+
+    pub(super) fn handle_workspace_set_archived(
+        &mut self,
+        id: String,
+        params: WorkspaceSetArchivedParams,
+    ) -> String {
+        let Some(index) = self.parse_workspace_id(&params.workspace_id) else {
+            return workspace_not_found(id, &params.workspace_id);
+        };
+        if self.state.workspaces.get(index).is_none() {
+            return workspace_not_found(id, &params.workspace_id);
+        }
+        self.state
+            .set_workspace_archived(index, params.archived, std::time::SystemTime::now());
+        self.emit_archive_events();
 
         encode_success(
             id,
@@ -1061,6 +1084,54 @@ mod tests {
                     && workspaces[2].workspace_id == moved_id
             )
         }));
+    }
+
+    #[test]
+    fn api_workspace_set_archived_toggles_state_and_emits_events_only_on_change() {
+        let event_hub = crate::api::EventHub::default();
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            api_rx,
+            event_hub.clone(),
+        );
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.active = Some(0);
+        let id = app.public_workspace_id(1);
+        let set = |app: &mut App, archived| {
+            let response = app.handle_workspace_set_archived(
+                "req".into(),
+                WorkspaceSetArchivedParams {
+                    workspace_id: id.clone(),
+                    archived,
+                },
+            );
+            let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+            let ResponseResult::WorkspaceInfo { workspace } = success.result else {
+                panic!("expected workspace info");
+            };
+            workspace
+        };
+
+        assert!(set(&mut app, true).archived_at.is_some());
+        assert!(app.state.workspaces[1].archived_at.is_some());
+        assert!(set(&mut app, true).archived_at.is_some());
+        assert!(set(&mut app, false).archived_at.is_none());
+
+        let archive_events = event_hub
+            .events_after(0)
+            .into_iter()
+            .filter_map(|(_, event)| match event.data {
+                EventData::WorkspaceArchiveChanged {
+                    workspace_id,
+                    archived,
+                } => Some((workspace_id, archived)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(archive_events, [(id.clone(), true), (id.clone(), false)]);
     }
 
     #[test]

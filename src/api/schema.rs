@@ -63,6 +63,7 @@ operations::define_operations! {
     WorkspaceGet(WorkspaceTarget) => "workspace.get", false, false;
     WorkspaceFocus(WorkspaceTarget) => "workspace.focus", true, true;
     WorkspaceRename(WorkspaceRenameParams) => "workspace.rename", true, true;
+    WorkspaceSetArchived(WorkspaceSetArchivedParams) => "workspace.set_archived", true, true;
     WorkspaceMove(WorkspaceMoveParams) => "workspace.move", true, true;
     WorkspaceMoveBlock(WorkspaceMoveBlockParams) => "workspace.move_block", true, true;
     WorkspaceReportMetadata(WorkspaceReportMetadataParams) => "workspace.report_metadata", true, false;

@@ -513,7 +513,8 @@ impl ClientShellState {
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
             || point.1 >= self.hits.new_workspace.y
             || self.hits.workspaces.iter().any(|hit| {
-                hit.endpoint_id != self.active_endpoint_id && super::contains(hit.rect, point)
+                (hit.endpoint_id != self.active_endpoint_id || hit.archived)
+                    && super::contains(hit.rect, point)
             })
         {
             return None;
@@ -523,7 +524,9 @@ impl ClientShellState {
             .hits
             .workspaces
             .iter()
-            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.indented)
+            .filter(|hit| {
+                hit.endpoint_id == self.active_endpoint_id && !hit.indented && !hit.archived
+            })
             .filter(|hit| {
                 hit.group_toggle.as_ref().is_none_or(|(_, key)| {
                     snapshot
@@ -543,13 +546,14 @@ impl ClientShellState {
         let collapsed_groups = self
             .collapsed_groups_for_endpoint(&self.active_endpoint_id)
             .unwrap_or(&empty_collapsed_groups);
-        let entries = render::workspace_entries(snapshot, collapsed_groups);
+        let entries =
+            render::workspace_entries(snapshot, collapsed_groups, self.archived_placement());
         let last_hit = self
             .hits
             .workspaces
             .iter()
             .rev()
-            .find(|hit| hit.endpoint_id == self.active_endpoint_id)?;
+            .find(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.archived)?;
         let last_position = entries.iter().position(|entry| {
             snapshot
                 .workspaces
@@ -2086,6 +2090,12 @@ impl ClientShellState {
                         .saturating_add(1)
                         .min(tab_count.saturating_sub(1));
                     outcome.repaint = true;
+                    return;
+                }
+                if super::contains(self.hits.archived_toggle, point) {
+                    self.archived_expanded = !self.archived_expanded;
+                    outcome.repaint = true;
+                    self.persist_chrome_preferences(outcome);
                     return;
                 }
                 let group_toggle = self.hits.workspaces.iter().find_map(|hit| {

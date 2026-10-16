@@ -103,6 +103,7 @@ pub(super) struct ShellHitMap {
     pub(super) sidebar_divider: Rect,
     pub(super) sidebar_section_divider: Rect,
     pub(super) sidebar_toggle: Rect,
+    pub(super) archived_toggle: Rect,
     pub(super) new_workspace: Rect,
     pub(super) new_tab: Rect,
     pub(super) tab_scroll_left: Rect,
@@ -236,6 +237,7 @@ pub(super) struct WorkspaceHit {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
     pub(super) indented: bool,
+    pub(super) archived: bool,
     pub(super) group_toggle: Option<(Rect, String)>,
 }
 
@@ -516,6 +518,8 @@ pub(super) enum ClientContextMenuAction {
     OpenWorktree,
     RemoveWorktree,
     ToggleGroup,
+    Archive,
+    Unarchive,
     NewTab,
     RenamePane,
     ClearPaneName,
@@ -536,6 +540,7 @@ pub(super) enum ClientContextMenuTarget {
         has_worktree_children: bool,
         close_group: bool,
         collapsed: bool,
+        archived: bool,
     },
     Tab {
         tab_id: String,
@@ -882,6 +887,7 @@ pub(crate) struct ClientShellState {
     pub(super) tab_press: Option<ClientTabPress>,
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
+    pub(super) archived_expanded: bool,
     pub(super) workspace_scroll: usize,
     pub(super) agent_scroll: usize,
     pub(super) pending_agent_reveal: Option<(ClientEndpointId, String)>,
@@ -990,6 +996,17 @@ pub(super) struct WorkspaceEntry {
     pub(super) index: usize,
     pub(super) indented: bool,
     pub(super) last_child: bool,
+    pub(super) archived: bool,
+}
+
+/// Where archived spaces appear in a workspace list.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ArchivedPlacement {
+    Hidden,
+    /// Directly beneath the sidebar's "Archived" toggle.
+    Top,
+    /// After the active spaces, for views that have no toggle.
+    Bottom,
 }
 
 impl ClientShellState {
@@ -1056,6 +1073,7 @@ impl ClientShellState {
             tab_press: None,
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
             remote_collapsed_groups,
+            archived_expanded: preferences.archived_expanded,
             workspace_scroll: 0,
             agent_scroll: 0,
             pending_agent_reveal: None,
@@ -1183,20 +1201,29 @@ impl ClientShellState {
         }
     }
 
+    /// The toggle only exists in the single-machine sidebar; other lists always show archived last.
+    pub(super) fn archived_placement(&self) -> ArchivedPlacement {
+        if self.mobile_layout_active() || self.endpoints.len() != 1 {
+            ArchivedPlacement::Bottom
+        } else if self.archived_expanded {
+            ArchivedPlacement::Top
+        } else {
+            ArchivedPlacement::Hidden
+        }
+    }
+
     pub(super) fn navigation_workspace_entries(
         &self,
         snapshot: &ClientShellSnapshot,
     ) -> Vec<WorkspaceEntry> {
         let empty_collapsed_groups = HashSet::new();
-        if self.mobile_layout_active() {
-            render::workspace_entries(snapshot, &empty_collapsed_groups)
+        let collapsed_groups = if self.mobile_layout_active() {
+            &empty_collapsed_groups
         } else {
-            render::workspace_entries(
-                snapshot,
-                self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
-                    .unwrap_or(&empty_collapsed_groups),
-            )
-        }
+            self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
+                .unwrap_or(&empty_collapsed_groups)
+        };
+        render::workspace_entries(snapshot, collapsed_groups, self.archived_placement())
     }
 
     pub(super) fn reveal_workspace(&mut self, workspace_id: &str) {

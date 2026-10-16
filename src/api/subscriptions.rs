@@ -134,6 +134,9 @@ impl ActiveSubscription {
                 Ok(event_subscription(EventKind::WorkspaceRenamed))
             }
             Subscription::WorkspaceMoved {} => Ok(event_subscription(EventKind::WorkspaceMoved)),
+            Subscription::WorkspaceArchiveChanged {} => {
+                Ok(event_subscription(EventKind::WorkspaceArchiveChanged))
+            }
             Subscription::WorkspaceReordered {} => {
                 Ok(event_subscription(EventKind::WorkspaceReordered))
             }

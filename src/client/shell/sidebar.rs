@@ -60,6 +60,7 @@ pub(crate) fn render_collapsed_sidebar(
     for (index, workspace) in snapshot
         .workspaces
         .iter()
+        .filter(|workspace| workspace.archived_at.is_none())
         .take(workspace_area.height as usize)
         .enumerate()
     {
@@ -106,6 +107,7 @@ pub(crate) fn render_collapsed_sidebar(
             endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
             indented: false,
+            archived: false,
             group_toggle: None,
         });
     }
@@ -226,7 +228,12 @@ pub(crate) fn render_sidebar(
             .add_modifier(Modifier::BOLD),
     );
 
-    let entries = workspace_entries(snapshot, state.collapsed_groups);
+    let archived_placement = if state.archived_expanded {
+        ArchivedPlacement::Top
+    } else {
+        ArchivedPlacement::Hidden
+    };
+    let entries = workspace_entries(snapshot, state.collapsed_groups, archived_placement);
     let body = Rect::new(
         workspace_area.x,
         workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),
@@ -235,6 +242,24 @@ pub(crate) fn render_sidebar(
             .height
             .saturating_sub(WORKSPACE_HEADER_ROWS + 1),
     );
+    let archived_count = snapshot
+        .workspaces
+        .iter()
+        .filter(|workspace| workspace.archived_at.is_some())
+        .count();
+    let body = if archived_count > 0 && !body.is_empty() {
+        hits.archived_toggle = Rect::new(body.x, body.y, body.width, 1);
+        render_archived_toggle(
+            buffer,
+            hits.archived_toggle,
+            archived_count,
+            state.archived_expanded,
+            palette,
+        );
+        Rect::new(body.x, body.y + 1, body.width, body.height - 1)
+    } else {
+        body
+    };
     hits.workspace_body = body;
     let row_heights = entries
         .iter()
@@ -347,6 +372,7 @@ pub(crate) fn render_sidebar(
             endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
             indented: entry.indented,
+            archived: entry.archived,
             group_toggle,
         });
         let gap = entries
@@ -458,9 +484,13 @@ pub(crate) fn render_sidebar(
 pub(crate) fn workspace_entries(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
+    archived_placement: ArchivedPlacement,
 ) -> Vec<WorkspaceEntry> {
     let mut members = HashMap::<&str, Vec<usize>>::new();
     for (index, workspace) in snapshot.workspaces.iter().enumerate() {
+        if workspace.archived_at.is_some() {
+            continue;
+        }
         if let Some(worktree) = &workspace.worktree {
             members.entry(&worktree.key).or_default().push(index);
         }
@@ -485,6 +515,9 @@ pub(crate) fn workspace_entries(
     let mut emitted = HashSet::<&str>::new();
     let mut entries = Vec::new();
     for (index, workspace) in snapshot.workspaces.iter().enumerate() {
+        if workspace.archived_at.is_some() {
+            continue;
+        }
         let Some(worktree) = workspace
             .worktree
             .as_ref()
@@ -494,6 +527,7 @@ pub(crate) fn workspace_entries(
                 index,
                 indented: false,
                 last_child: false,
+                archived: false,
             });
             continue;
         };
@@ -513,6 +547,7 @@ pub(crate) fn workspace_entries(
                 index: parent,
                 indented: false,
                 last_child: false,
+                archived: false,
             });
         }
         if collapsed_groups.contains(&worktree.key) {
@@ -528,6 +563,7 @@ pub(crate) fn workspace_entries(
                     index: active,
                     indented: true,
                     last_child: true,
+                    archived: false,
                 });
             }
             continue;
@@ -547,10 +583,48 @@ pub(crate) fn workspace_entries(
                 index: *child,
                 indented: true,
                 last_child: child_index + 1 == children.len(),
+                archived: false,
             });
         }
     }
+    if archived_placement != ArchivedPlacement::Hidden {
+        let mut archived = snapshot
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, workspace)| workspace.archived_at.is_some())
+            .collect::<Vec<_>>();
+        archived.sort_by_key(|(_, workspace)| std::cmp::Reverse(workspace.archived_at));
+        let archived = archived.into_iter().map(|(index, _)| WorkspaceEntry {
+            index,
+            indented: false,
+            last_child: false,
+            archived: true,
+        });
+        if archived_placement == ArchivedPlacement::Top {
+            entries.splice(0..0, archived);
+        } else {
+            entries.extend(archived);
+        }
+    }
     entries
+}
+
+fn render_archived_toggle(
+    buffer: &mut Buffer,
+    rect: Rect,
+    count: usize,
+    expanded: bool,
+    palette: &Palette,
+) {
+    put_text(
+        buffer,
+        rect.x,
+        rect.y,
+        rect.width,
+        &format!(" {} Archived ({count})", if expanded { "▾" } else { "▸" }),
+        Style::default().fg(palette.overlay0),
+    );
 }
 
 fn parent_group_key(snapshot: &ClientShellSnapshot, index: usize) -> Option<String> {
@@ -563,9 +637,10 @@ fn parent_group_key(snapshot: &ClientShellSnapshot, index: usize) -> Option<Stri
         .workspaces
         .iter()
         .any(|candidate| {
-            candidate.worktree.as_ref().is_some_and(|candidate| {
-                candidate.key == worktree.key && candidate.is_linked_worktree
-            })
+            candidate.archived_at.is_none()
+                && candidate.worktree.as_ref().is_some_and(|candidate| {
+                    candidate.key == worktree.key && candidate.is_linked_worktree
+                })
         })
         .then(|| worktree.key.clone())
 }
@@ -676,7 +751,7 @@ pub(in crate::client::shell) fn workspace_rows(
         &workspace.label
     };
     let token_values = workspace.tokens.iter().cloned().collect::<HashMap<_, _>>();
-    crate::ui::sidebar_space_rows(
+    let mut rows = crate::ui::sidebar_space_rows(
         config,
         crate::ui::SpaceTokenContext {
             workspace: label,
@@ -686,7 +761,13 @@ pub(in crate::client::shell) fn workspace_rows(
             tokens: &token_values,
             suppress_git_details: indented,
         },
-    )
+    );
+    if workspace.archived_at.is_some() {
+        for row in &mut rows {
+            row.retain(|token| !matches!(token.kind, crate::ui::ResolvedTokenKind::StateIcon));
+        }
+    }
+    rows
 }
 
 pub(in crate::client::shell) fn render_workspace_rows(
@@ -732,6 +813,9 @@ pub(in crate::client::shell) fn render_workspace_rows(
             x = x.saturating_add(1);
         } else {
             x = x.saturating_add(3);
+        }
+        if entry.archived {
+            x = x.saturating_add(2);
         }
         let highlighted = focused || dragged;
         let workspace_style = Style::default()

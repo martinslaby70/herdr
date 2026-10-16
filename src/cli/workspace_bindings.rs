@@ -6,7 +6,9 @@ use crate::api::schema::workspaces::{
     WorkspaceCloseProjection, WorkspaceCreateProjection, WorkspaceMetadataProjection,
     WorkspaceRenameProjection,
 };
-use crate::api::schema::{EmptyParams, Method, Request, WorkspaceTarget};
+use crate::api::schema::{
+    EmptyParams, Method, Request, WorkspaceSetArchivedParams, WorkspaceTarget,
+};
 
 use super::projection::{cli_projection, Field, Input, ParseError};
 
@@ -125,7 +127,7 @@ impl Leaf {
     }
 }
 
-pub(crate) const LEAVES: [Leaf; 7] = [
+pub(crate) const LEAVES: [Leaf; 9] = [
     Leaf {
         name: "list",
         about: "List workspaces",
@@ -172,6 +174,36 @@ pub(crate) const LEAVES: [Leaf; 7] = [
         arguments: WorkspaceRenameProjection::arguments,
         method: |matches| {
             WorkspaceRenameProjection::from_matches(matches).map(Method::WorkspaceRename)
+        },
+    },
+    Leaf {
+        name: "archive",
+        about: "Archive a workspace",
+        id: "cli:workspace:archive",
+        quiet: false,
+        arguments: WorkspaceTargetProjection::arguments,
+        method: |matches| {
+            WorkspaceTargetProjection::from_matches(matches).map(|target| {
+                Method::WorkspaceSetArchived(WorkspaceSetArchivedParams {
+                    workspace_id: target.workspace_id,
+                    archived: true,
+                })
+            })
+        },
+    },
+    Leaf {
+        name: "unarchive",
+        about: "Restore an archived workspace",
+        id: "cli:workspace:unarchive",
+        quiet: false,
+        arguments: WorkspaceTargetProjection::arguments,
+        method: |matches| {
+            WorkspaceTargetProjection::from_matches(matches).map(|target| {
+                Method::WorkspaceSetArchived(WorkspaceSetArchivedParams {
+                    workspace_id: target.workspace_id,
+                    archived: false,
+                })
+            })
         },
     },
     Leaf {

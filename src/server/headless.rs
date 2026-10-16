@@ -553,6 +553,9 @@ impl HeadlessServer {
             if needs_render && (render_cadence_due || presentation_due || interactive_due) {
                 crate::render_prof::event("render.attempt");
                 let render_request = self.app.render_dirty.take();
+                for pane_id in &render_request.pty_sources {
+                    self.app.state.note_pane_output(*pane_id);
+                }
                 let pty_dirty = !render_request.pty_sources.is_empty();
                 if pty_dirty {
                     crate::render_prof::event("render.attempt.pty_dirty");
@@ -2450,10 +2453,11 @@ impl HeadlessServer {
                 if keyboard_forwarded {
                     self.note_interactive_input(runtime_pane_id, Instant::now());
                 }
+                let unarchived = interaction && self.app.note_workspace_input(workspace_index);
                 if let Err(err) = input_result {
                     warn!(client_id, pane_id, err = %err, "targeted client shell input failed");
                 }
-                foreground_changed | geometry_changed || scroll_changed
+                foreground_changed | geometry_changed || scroll_changed || unarchived
             }
             ServerEvent::ClientShellPopupInput {
                 client_id,
@@ -3366,6 +3370,8 @@ impl HeadlessServer {
         }
 
         changed |= self.app.release_host_appearance_if_ready(now);
+        changed |= self.app.run_archive_sweep(now);
+
         changed |= self.app.handle_tab_bar_status_tasks(now);
 
         if geometry_dirty {

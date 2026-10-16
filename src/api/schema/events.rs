@@ -26,6 +26,8 @@ pub enum Subscription {
     WorkspaceRenamed {},
     #[serde(rename = "workspace.moved")]
     WorkspaceMoved {},
+    #[serde(rename = "workspace.archive_changed")]
+    WorkspaceArchiveChanged {},
     #[serde(rename = "workspace.reordered")]
     WorkspaceReordered {},
     #[serde(rename = "workspace.closed")]
@@ -198,6 +200,7 @@ pub enum EventKind {
     WorkspaceClosed,
     WorkspaceRenamed,
     WorkspaceMoved,
+    WorkspaceArchiveChanged,
     WorkspaceReordered,
     WorkspaceFocused,
     WorktreeCreated,
@@ -229,6 +232,7 @@ impl EventKind {
             EventKind::WorkspaceClosed => "workspace.closed",
             EventKind::WorkspaceRenamed => "workspace.renamed",
             EventKind::WorkspaceMoved => "workspace.moved",
+            EventKind::WorkspaceArchiveChanged => "workspace.archive_changed",
             EventKind::WorkspaceReordered => "workspace.reordered",
             EventKind::WorkspaceFocused => "workspace.focused",
             EventKind::WorktreeCreated => "worktree.created",
@@ -261,6 +265,7 @@ pub const KNOWN_EVENT_KINDS: &[EventKind] = &[
     EventKind::WorkspaceClosed,
     EventKind::WorkspaceRenamed,
     EventKind::WorkspaceMoved,
+    EventKind::WorkspaceArchiveChanged,
     EventKind::WorkspaceReordered,
     EventKind::WorkspaceFocused,
     EventKind::WorktreeCreated,
@@ -442,6 +447,10 @@ pub enum EventData {
         workspace_id: String,
         insert_index: usize,
         workspaces: Vec<WorkspaceInfo>,
+    },
+    WorkspaceArchiveChanged {
+        workspace_id: String,
+        archived: bool,
     },
     WorkspaceReordered {
         workspace_ids: Vec<String>,

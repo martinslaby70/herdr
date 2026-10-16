@@ -39,6 +39,7 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
             tokens: Vec::new(),
             worktree: None,
             focused: true,
+            archived_at: None,
             agent_status: AgentStatus::Idle,
         }],
         tabs: vec![ClientShellTab {

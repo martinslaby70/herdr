@@ -57,6 +57,10 @@ pub struct WorkspaceSnapshot {
     pub identity_cwd: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_space: Option<crate::workspace::WorktreeSpaceMembership>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<std::time::SystemTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<std::time::SystemTime>,
     #[serde(default)]
     pub public_pane_numbers: HashMap<u32, usize>,
     #[serde(default)]
@@ -169,6 +173,8 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
             custom_name: snap.custom_name,
             identity_cwd,
             worktree_space: None,
+            archived_at: None,
+            last_activity_at: None,
             public_pane_numbers: HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
@@ -307,6 +313,8 @@ fn capture_workspace(
         custom_name: ws.custom_name.clone(),
         identity_cwd,
         worktree_space: ws.worktree_space.clone(),
+        archived_at: ws.archived_at,
+        last_activity_at: Some(ws.last_activity_at),
         public_pane_numbers: ws
             .public_pane_numbers
             .iter()
@@ -728,6 +736,8 @@ mod tests {
                 custom_name: Some("pi-mono".to_string()),
                 identity_cwd: PathBuf::from("/home/can/Projects/herdr"),
                 worktree_space: None,
+                archived_at: None,
+                last_activity_at: None,
                 public_pane_numbers: HashMap::from([(0, 1), (1, 2)]),
                 next_public_pane_number: 3,
                 public_tab_numbers: vec![1],
@@ -934,6 +944,40 @@ mod tests {
         assert_eq!(snapshot.sidebar_width, None);
         assert_eq!(snapshot.sidebar_section_split, None);
         assert!(snapshot.collapsed_space_keys.is_empty());
+    }
+
+    #[test]
+    fn capture_contract_round_trips_archive_and_activity_times() {
+        let mut state = state_with_workspaces(&["archived", "active"]);
+        let archived_at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_100);
+        let last_activity_at =
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        state.workspaces[0].archived_at = Some(archived_at);
+        state.workspaces[0].last_activity_at = last_activity_at;
+
+        let snapshot = capture_from_state(&state);
+        let restored = parse_snapshot(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+
+        assert_eq!(restored.workspaces[0].archived_at, Some(archived_at));
+        assert_eq!(
+            restored.workspaces[0].last_activity_at,
+            Some(last_activity_at)
+        );
+        assert_eq!(restored.workspaces[1].archived_at, None);
+    }
+
+    #[test]
+    fn snapshot_without_archive_fields_migrates_to_an_active_workspace() {
+        let state = state_with_workspaces(&["old"]);
+        let mut raw = serde_json::to_value(capture_from_state(&state)).unwrap();
+        let workspace = raw["workspaces"][0].as_object_mut().unwrap();
+        workspace.remove("archived_at");
+        workspace.remove("last_activity_at");
+
+        let migrated = parse_snapshot(&raw.to_string()).unwrap();
+
+        assert_eq!(migrated.workspaces[0].archived_at, None);
+        assert_eq!(migrated.workspaces[0].last_activity_at, None);
     }
 
     #[test]
@@ -1429,6 +1473,8 @@ mod tests {
                 custom_name: Some("fallback test".to_string()),
                 identity_cwd: PathBuf::from("/tmp"),
                 worktree_space: None,
+                archived_at: None,
+                last_activity_at: None,
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),

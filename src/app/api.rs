@@ -355,6 +355,7 @@ impl App {
         let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
         let previous_toast = self.state.toast.clone();
         let mut pane_updates = self.state.handle_app_event(ev);
+        self.emit_archive_events();
         if update_ready.is_some() {
             self.state.latest_release_notes = crate::release_notes::load_latest();
         }
@@ -1072,6 +1073,9 @@ impl App {
             }
             Method::WorkspaceRename(params) => {
                 return self.handle_workspace_rename(request.id, params);
+            }
+            Method::WorkspaceSetArchived(params) => {
+                return self.handle_workspace_set_archived(request.id, params);
             }
             Method::WorkspaceMove(params) => {
                 return self.handle_workspace_move(request.id, params);

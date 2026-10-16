@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -1030,6 +1030,8 @@ pub struct ClientShellWorkspace {
     pub tokens: Vec<(String, String)>,
     pub worktree: Option<ClientShellWorktree>,
     pub focused: bool,
+    /// Seconds since the Unix epoch when the space was archived; `None` means active.
+    pub archived_at: Option<u64>,
     #[serde(deserialize_with = "deserialize_client_shell_agent_status")]
     pub agent_status: crate::api::schema::AgentStatus,
 }
@@ -2829,6 +2831,7 @@ mod tests {
                 tokens: Vec::new(),
                 worktree: None,
                 focused: true,
+                archived_at: None,
                 agent_status: crate::api::schema::AgentStatus::Idle,
             }],
             tabs: vec![ClientShellTab {

@@ -139,6 +139,7 @@ pub struct App {
     pub(crate) update_manifest_check_enabled: bool,
     pub(crate) loaded_host_cursor: crate::config::HostCursorModeConfig,
     pub(crate) agent_metadata_deadline: Option<Instant>,
+    pub(crate) next_archive_sweep: Instant,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
     pub(crate) pending_host_appearance_deadline: Option<Instant>,
     pane_host_appearance: Option<crate::terminal_theme::HostAppearance>,
@@ -578,6 +579,9 @@ impl App {
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
+            archive_transitions: Vec::new(),
+            restore_settles_at: Instant::now() + runtime::RESTORE_SETTLE,
+            last_pty_activity_note: None,
         };
 
         state.terminals = restored_terminals;
@@ -653,6 +657,7 @@ impl App {
             update_manifest_check_enabled: config.update.manifest_check,
             loaded_host_cursor: config.ui.host_cursor,
             agent_metadata_deadline: None,
+            next_archive_sweep: Instant::now() + runtime::ARCHIVE_SWEEP_STARTUP_DELAY,
             pending_agent_resume_deadline: None,
             pending_host_appearance_deadline: None,
             pane_host_appearance: None,

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ratatui::layout::Rect;
 
 use crate::app;
@@ -55,7 +57,7 @@ pub(super) fn snapshot_with_completions(
             app.public_pane_id(workspace_index, pane_id)
         })
         .or_else(|| snapshot.focused_pane_id.clone());
-    let workspaces = snapshot
+    let workspaces: Vec<protocol::ClientShellWorkspace> = snapshot
         .workspaces
         .into_iter()
         .zip(&app.state.workspaces)
@@ -75,6 +77,7 @@ pub(super) fn snapshot_with_completions(
                     });
             protocol::ClientShellWorkspace {
                 focused: focused_workspace_id.as_deref() == Some(workspace_id.as_str()),
+                archived_at: state.archived_at_secs(),
                 workspace_id,
                 active_tab_id,
                 new_workspace_cwd: app
@@ -148,9 +151,17 @@ pub(super) fn snapshot_with_completions(
             }
         })
         .collect();
+    let archived_workspace_ids = app
+        .state
+        .workspaces
+        .iter()
+        .filter(|workspace| workspace.archived_at.is_some())
+        .map(|workspace| workspace.id.as_str())
+        .collect::<HashSet<_>>();
     let agents = snapshot
         .agents
         .into_iter()
+        .filter(|agent| !archived_workspace_ids.contains(agent.workspace_id.as_str()))
         .map(|agent| {
             let pane_id = agent.pane_id;
             let focused = focused_pane_id.as_deref() == Some(pane_id.as_str());
@@ -184,6 +195,9 @@ pub(super) fn snapshot_with_completions(
         .map(|view| view.label.clone().unwrap_or_else(|| "filtered".to_owned()));
     let agent_order = crate::ui::agent_panel_entries_from(&app.state, &app.terminal_runtimes)
         .into_iter()
+        .filter(|entry| {
+            !archived_workspace_ids.contains(app.state.workspaces[entry.ws_idx].id.as_str())
+        })
         .filter_map(|entry| app.public_pane_id(entry.ws_idx, entry.pane_id))
         .collect();
 
@@ -751,6 +765,53 @@ mod tests {
             )),
             Some(("0.8.3", "### Changed\n- Client shell", true))
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn snapshot_omits_agents_of_archived_workspaces() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = crate::app::App::new(
+            &crate::config::Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![
+            crate::workspace::Workspace::test_new("kept"),
+            crate::workspace::Workspace::test_new("archived"),
+        ];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+        for terminal in app.state.terminals.values_mut() {
+            terminal.set_detected_state(
+                Some(crate::detect::Agent::Pi),
+                crate::detect::AgentState::Working,
+            );
+        }
+        let kept_id = app.public_workspace_id(0);
+        let archived_id = app.public_workspace_id(1);
+
+        let before = snapshot(&app, "boot", 1, None, None);
+        assert_eq!(before.agents.len(), 2);
+        assert_eq!(before.agent_order.len(), 2);
+
+        app.state
+            .set_workspace_archived(1, true, std::time::SystemTime::now());
+        let after = snapshot(&app, "boot", 2, None, None);
+
+        assert!(after
+            .agents
+            .iter()
+            .all(|agent| agent.workspace_id == kept_id));
+        assert_eq!(after.agents.len(), 1);
+        assert_eq!(after.agent_order.len(), 1);
+        assert!(after
+            .agent_order
+            .iter()
+            .all(|pane_id| after.agents.iter().any(|agent| &agent.pane_id == pane_id)));
+        assert!(after.workspaces[1].archived_at.is_some());
+        assert_eq!(after.workspaces[1].workspace_id, archived_id);
     }
 
     #[test]

@@ -159,6 +159,7 @@ mod tests {
             "workspace.create",
             "workspace.focus",
             "workspace.rename",
+            "workspace.set_archived",
             "workspace.move",
             "workspace.move_block",
             "workspace.report_metadata",

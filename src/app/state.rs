@@ -24,6 +24,11 @@ pub(crate) struct PopupPaneState {
 
 use crate::terminal_theme::{HostAppearance, TerminalTheme};
 use crate::workspace::Workspace;
+use std::time::{Duration, Instant, SystemTime};
+
+use super::runtime::AUTO_ARCHIVE_AFTER;
+
+const PTY_ACTIVITY_DEBOUNCE: Duration = Duration::from_secs(1);
 
 // ---------------------------------------------------------------------------
 // Theme palette — all UI colors in one place, ready for theming
@@ -888,11 +893,105 @@ pub struct AppState {
     /// Terminal runtimes that should be shut down by the app/runtime layer
     /// after state has detached their terminal metadata.
     pub(crate) terminal_runtime_shutdowns: Vec<crate::terminal::TerminalId>,
+    /// Workspaces whose archive state changed, drained by the app layer into API events.
+    pub(crate) archive_transitions: Vec<usize>,
+    /// Agent events before this instant are restore replays and never unarchive.
+    pub(crate) restore_settles_at: Instant,
+    pub(crate) last_pty_activity_note: Option<Instant>,
 }
 
 impl AppState {
     pub(crate) fn mark_session_dirty(&mut self) {
         self.session_dirty = true;
+    }
+
+    /// No-op when the space is already in the requested state.
+    pub(crate) fn set_workspace_archived(
+        &mut self,
+        ws_idx: usize,
+        archived: bool,
+        now: SystemTime,
+    ) {
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return;
+        };
+        if workspace.archived_at.is_some() == archived {
+            return;
+        }
+        if archived {
+            workspace.archived_at = Some(now);
+        } else {
+            workspace.archived_at = None;
+            workspace.last_activity_at = now;
+        }
+        self.archive_transitions.push(ws_idx);
+        self.mark_session_dirty();
+    }
+
+    /// User input or an API command: refreshes the idle clock and unarchives.
+    /// Returns whether the space was unarchived.
+    pub(crate) fn note_workspace_input(&mut self, ws_idx: usize) -> bool {
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        let now = SystemTime::now();
+        workspace.last_activity_at = now;
+        let was_archived = workspace.archived_at.is_some();
+        self.set_workspace_archived(ws_idx, false, now);
+        was_archived
+    }
+
+    /// Agent state events unarchive like input, except while restore is still settling.
+    pub(crate) fn note_pane_agent_event(&mut self, pane_id: PaneId) {
+        // Restore replays session refs through these events; they are not user activity.
+        if Instant::now() < self.restore_settles_at {
+            return;
+        }
+        if let Some(ws_idx) = self.workspace_index_for_pane(pane_id) {
+            self.note_workspace_input(ws_idx);
+        }
+    }
+
+    /// PTY output only refreshes the idle clock; it never unarchives.
+    pub(crate) fn note_pane_output(&mut self, pane_id: PaneId) {
+        let now = Instant::now();
+        if self
+            .last_pty_activity_note
+            .is_some_and(|last| now.duration_since(last) < PTY_ACTIVITY_DEBOUNCE)
+        {
+            return;
+        }
+        if let Some(ws_idx) = self.workspace_index_for_pane(pane_id) {
+            self.last_pty_activity_note = Some(now);
+            self.workspaces[ws_idx].last_activity_at = SystemTime::now();
+        }
+    }
+
+    fn workspace_index_for_pane(&self, pane_id: PaneId) -> Option<usize> {
+        self.workspaces
+            .iter()
+            .position(|workspace| workspace.pane_state(pane_id).is_some())
+    }
+
+    /// Archives every active space idle for longer than [`AUTO_ARCHIVE_AFTER`].
+    pub(crate) fn archive_inactive_workspaces(&mut self, now: SystemTime) -> bool {
+        let idle_indices = self
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, workspace)| {
+                workspace.archived_at.is_none()
+                    && now
+                        .duration_since(workspace.last_activity_at)
+                        .unwrap_or_default()
+                        > AUTO_ARCHIVE_AFTER
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        for &index in &idle_indices {
+            self.set_workspace_archived(index, true, now);
+        }
+        !idle_indices.is_empty()
     }
 
     pub(crate) fn remove_alias_shadowed_by_new_pane(&mut self, pane_id: PaneId) {
@@ -1120,6 +1219,9 @@ impl AppState {
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
+            archive_transitions: Vec::new(),
+            restore_settles_at: Instant::now(),
+            last_pty_activity_note: None,
         }
     }
 
@@ -1324,6 +1426,98 @@ impl AppState {
 mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
+
+    #[test]
+    fn archive_sweep_only_archives_workspaces_idle_past_the_threshold() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![
+            crate::workspace::Workspace::test_new("just under"),
+            crate::workspace::Workspace::test_new("just over"),
+        ];
+        let now = SystemTime::now();
+        let second = Duration::from_secs(1);
+        state.workspaces[0].last_activity_at = now - (AUTO_ARCHIVE_AFTER - second);
+        state.workspaces[1].last_activity_at = now - (AUTO_ARCHIVE_AFTER + second);
+
+        assert!(state.archive_inactive_workspaces(now));
+
+        assert_eq!(state.workspaces[0].archived_at, None);
+        assert_eq!(state.workspaces[1].archived_at, Some(now));
+        assert!(!state.archive_inactive_workspaces(now));
+    }
+
+    fn archived_state(archived_ago: Duration) -> AppState {
+        let mut state = AppState::test_new();
+        let mut workspace = crate::workspace::Workspace::test_new("quiet");
+        workspace.last_activity_at = SystemTime::now() - AUTO_ARCHIVE_AFTER * 2;
+        workspace.archived_at = Some(SystemTime::now() - archived_ago);
+        state.workspaces = vec![workspace];
+        state
+    }
+
+    fn first_pane(state: &AppState) -> PaneId {
+        state.workspaces[0].tabs[0].root_pane
+    }
+
+    #[test]
+    fn unarchiving_resets_activity_so_the_next_sweep_keeps_the_workspace() {
+        let mut state = archived_state(Duration::ZERO);
+
+        state.set_workspace_archived(0, false, SystemTime::now());
+
+        assert_eq!(state.workspaces[0].archived_at, None);
+        assert!(!state.archive_inactive_workspaces(SystemTime::now()));
+        assert!(state.session_dirty);
+        assert_eq!(state.archive_transitions, [0]);
+    }
+
+    #[test]
+    fn rearchiving_an_archived_workspace_is_a_no_op() {
+        let mut state = archived_state(Duration::from_secs(60));
+        let archived_at = state.workspaces[0].archived_at;
+
+        state.set_workspace_archived(0, true, SystemTime::now());
+
+        assert_eq!(state.workspaces[0].archived_at, archived_at);
+        assert!(!state.session_dirty);
+        assert!(state.archive_transitions.is_empty());
+    }
+
+    #[test]
+    fn pty_output_refreshes_activity_without_unarchiving() {
+        let mut state = archived_state(Duration::ZERO);
+        let pane_id = first_pane(&state);
+
+        state.note_pane_output(pane_id);
+
+        assert!(state.workspaces[0].archived_at.is_some());
+        assert!(state.workspaces[0].last_activity_at.elapsed().unwrap() < Duration::from_secs(5));
+        assert!(state.archive_transitions.is_empty());
+    }
+
+    #[test]
+    fn input_unarchives_and_refreshes_the_workspace() {
+        let mut state = archived_state(Duration::ZERO);
+
+        assert!(state.note_workspace_input(0));
+
+        assert_eq!(state.workspaces[0].archived_at, None);
+        assert!(!state.archive_inactive_workspaces(SystemTime::now()));
+    }
+
+    #[test]
+    fn agent_events_unarchive_unless_restore_is_settling() {
+        let mut state = archived_state(Duration::ZERO);
+        let pane_id = first_pane(&state);
+
+        state.restore_settles_at = Instant::now() + Duration::from_secs(60);
+        state.note_pane_agent_event(pane_id);
+        assert!(state.workspaces[0].archived_at.is_some());
+
+        state.restore_settles_at = Instant::now();
+        state.note_pane_agent_event(pane_id);
+        assert_eq!(state.workspaces[0].archived_at, None);
+    }
 
     #[test]
     fn new_pane_size_uses_headless_size_before_first_view() {

@@ -225,6 +225,7 @@ impl App {
             expected_agent,
             agent,
         } = validated;
+        self.note_workspace_input(ws_idx);
         let Some(runtime) = self.lookup_runtime_sender(ws_idx, pane_id) else {
             return Err(agent_not_found(id, &params.target));
         };
@@ -405,6 +406,7 @@ impl App {
         else {
             return agent_not_ready(id, &params.target);
         };
+        self.note_workspace_input(resolved.ws_idx);
         let Some(runtime) = self.lookup_runtime_sender(resolved.ws_idx, resolved.pane_id) else {
             return agent_not_found(id, &params.target);
         };

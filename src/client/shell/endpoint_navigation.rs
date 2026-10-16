@@ -23,10 +23,11 @@ impl ClientShellState {
                         .find(|workspace| workspace.workspace_id == press.workspace_id)
                 })
                 .is_some_and(|workspace| {
-                    !workspace
-                        .worktree
-                        .as_ref()
-                        .is_some_and(|worktree| worktree.is_linked_worktree)
+                    workspace.archived_at.is_none()
+                        && !workspace
+                            .worktree
+                            .as_ref()
+                            .is_some_and(|worktree| worktree.is_linked_worktree)
                 })
     }
 
@@ -125,17 +126,18 @@ impl ClientShellState {
                         .snapshot
                         .as_deref()
                         .map_or_else(Vec::new, |snapshot| {
-                            render::workspace_entries(snapshot, &HashSet::new())
-                                .into_iter()
-                                .filter_map(|entry| {
-                                    snapshot.workspaces.get(entry.index).map(|workspace| {
-                                        (
-                                            endpoint.endpoint_id.clone(),
-                                            workspace.workspace_id.clone(),
-                                        )
-                                    })
+                            render::workspace_entries(
+                                snapshot,
+                                &HashSet::new(),
+                                super::state::ArchivedPlacement::Bottom,
+                            )
+                            .into_iter()
+                            .filter_map(|entry| {
+                                snapshot.workspaces.get(entry.index).map(|workspace| {
+                                    (endpoint.endpoint_id.clone(), workspace.workspace_id.clone())
                                 })
-                                .collect()
+                            })
+                            .collect()
                         })
                 })
                 .collect::<Vec<_>>();

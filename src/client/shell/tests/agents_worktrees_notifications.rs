@@ -115,6 +115,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
             is_linked_worktree: true,
         }),
         focused: false,
+        archived_at: None,
         agent_status: AgentStatus::Idle,
     });
     state.set_snapshot(Box::new(snapshot));
@@ -1681,4 +1682,98 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
     assert!(repaint);
     assert!(state.visible_notification.is_none());
     assert_eq!(state.pending_notifications.len(), 1);
+}
+
+#[test]
+fn archived_spaces_are_hidden_until_expanded_and_ordered_by_archive_time() {
+    let mut projected = snapshot();
+    for (workspace_id, label, archived_at) in
+        [("ws_old", "old-space", 100), ("ws_new", "new-space", 200)]
+    {
+        let mut archived = projected.workspaces[0].clone();
+        archived.workspace_id = workspace_id.into();
+        archived.label = label.into();
+        archived.focused = false;
+        archived.archived_at = Some(archived_at);
+        projected.workspaces.push(archived);
+    }
+
+    let collapsed =
+        render::workspace_entries(&projected, &HashSet::new(), ArchivedPlacement::Hidden);
+    assert_eq!(
+        collapsed
+            .iter()
+            .map(|entry| entry.index)
+            .collect::<Vec<_>>(),
+        [0]
+    );
+
+    let expanded = render::workspace_entries(&projected, &HashSet::new(), ArchivedPlacement::Top);
+    assert_eq!(
+        expanded.iter().map(|entry| entry.index).collect::<Vec<_>>(),
+        [2, 1, 0]
+    );
+    assert_eq!(
+        expanded
+            .iter()
+            .map(|entry| entry.archived)
+            .collect::<Vec<_>>(),
+        [true, true, false]
+    );
+
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 20).expect("collapsed archive");
+    let text = frame_rows(&frame).join("\n");
+    assert!(text.contains("Archived (2)"));
+    assert!(!text.contains("old-space"));
+
+    let toggle = state.hits.archived_toggle;
+    let click = |kind| {
+        RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind,
+            column: toggle.x + 1,
+            row: toggle.y,
+            modifiers: KeyModifiers::empty(),
+        })
+    };
+    state.handle_raw_events(vec![click(MouseEventKind::Down(MouseButton::Left))]);
+    let frame = state.compose(106, 20).expect("expanded archive");
+    let text = frame_rows(&frame).join("\n");
+    assert!(state.archived_expanded);
+    assert!(text.contains("old-space"));
+    assert!(text.find("new-space") < text.find("old-space"));
+    assert!(text.find("old-space") < text.find("client-shell"));
+}
+
+#[test]
+fn archived_spaces_trail_active_ones_in_toggleless_lists() {
+    let mut projected = snapshot();
+    let mut archived = projected.workspaces[0].clone();
+    archived.workspace_id = "ws_old".into();
+    archived.focused = false;
+    archived.archived_at = Some(100);
+    projected.workspaces.insert(0, archived);
+
+    let entries = render::workspace_entries(&projected, &HashSet::new(), ArchivedPlacement::Bottom);
+
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| (entry.index, entry.archived))
+            .collect::<Vec<_>>(),
+        [(1, false), (0, true)]
+    );
+}
+
+#[test]
+fn archive_toggle_is_absent_without_archived_spaces() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 20).expect("composed frame");
+
+    assert!(!frame_rows(&frame).join("\n").contains("Archived"));
+    assert!(state.hits.archived_toggle.is_empty());
 }
