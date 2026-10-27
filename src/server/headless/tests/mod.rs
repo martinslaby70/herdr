@@ -8428,3 +8428,47 @@ fn no_handle_internal_event_bypass_in_module() {
         bypass_lines.join("\n  ")
     );
 }
+
+#[test]
+fn only_enter_or_newline_text_counts_as_submit() {
+    use protocol::{
+        ClientKeyCode, ClientKeyKind, ClientMouseButton, ClientMouseKind, ClientPaneInputEvent,
+    };
+    let key = |code, kind| ClientPaneInputEvent::Key {
+        code,
+        modifiers: 0,
+        kind,
+        repeat_count: 1,
+        shifted_codepoint: None,
+        generated_text: None,
+        tracks_release: false,
+        physical_key_id: None,
+        windows_record: None,
+    };
+    let click = ClientPaneInputEvent::Mouse {
+        kind: ClientMouseKind::Down(ClientMouseButton::Left),
+        position: protocol::ClientMousePosition::Cell { column: 1, row: 1 },
+        geometry: None,
+        modifiers: 0,
+        lines: 0,
+    };
+    assert!(!client_pane_input_has_submit(&[click]));
+    assert!(!client_pane_input_has_submit(&[key(
+        ClientKeyCode::Char('a'),
+        ClientKeyKind::Press
+    )]));
+    assert!(!client_pane_input_has_submit(&[key(
+        ClientKeyCode::Enter,
+        ClientKeyKind::Release
+    )]));
+    assert!(client_pane_input_has_submit(&[key(
+        ClientKeyCode::Enter,
+        ClientKeyKind::Press
+    )]));
+    assert!(!client_pane_input_has_submit(&[
+        ClientPaneInputEvent::Paste("ls".into())
+    ]));
+    assert!(client_pane_input_has_submit(&[
+        ClientPaneInputEvent::Paste("ls\n".into())
+    ]));
+}

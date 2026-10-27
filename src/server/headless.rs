@@ -2426,6 +2426,7 @@ impl HeadlessServer {
                     return runtime.scroll_metrics() != scroll_before;
                 }
                 let interaction = client_pane_input_has_interaction(&events);
+                let submit = client_pane_input_has_submit(&events);
                 if let Some(client) = self.clients.get_mut(&client_id) {
                     client
                         .track_shell_input(ClientShellInputTarget::Pane(pane_id.clone()), &events);
@@ -2453,7 +2454,8 @@ impl HeadlessServer {
                 if keyboard_forwarded {
                     self.note_interactive_input(runtime_pane_id, Instant::now());
                 }
-                let unarchived = interaction && self.app.note_workspace_input(workspace_index);
+                let unarchived =
+                    interaction && self.app.note_workspace_pane_input(workspace_index, submit);
                 if let Err(err) = input_result {
                     warn!(client_id, pane_id, err = %err, "targeted client shell input failed");
                 }
@@ -3403,6 +3405,20 @@ fn client_pane_input_has_interaction(events: &[protocol::ClientPaneInputEvent]) 
     events
         .iter()
         .any(|event| !client_pane_input_releases_press(event))
+}
+
+/// A prompt/command submit: an Enter press or pasted/committed text containing a newline.
+fn client_pane_input_has_submit(events: &[protocol::ClientPaneInputEvent]) -> bool {
+    events.iter().any(|event| match event {
+        protocol::ClientPaneInputEvent::Key {
+            code: protocol::ClientKeyCode::Enter,
+            kind,
+            ..
+        } => *kind != protocol::ClientKeyKind::Release,
+        protocol::ClientPaneInputEvent::Paste(text)
+        | protocol::ClientPaneInputEvent::TextCommit(text) => text.contains(['\n', '\r']),
+        _ => false,
+    })
 }
 
 impl Drop for HeadlessServer {

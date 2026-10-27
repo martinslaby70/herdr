@@ -941,6 +941,13 @@ impl AppState {
         was_archived
     }
 
+    /// Non-submitting interaction (click, scroll, typing): refreshes the idle clock only.
+    pub(crate) fn note_workspace_activity(&mut self, ws_idx: usize) {
+        if let Some(workspace) = self.workspaces.get_mut(ws_idx) {
+            workspace.last_activity_at = SystemTime::now();
+        }
+    }
+
     /// Agent state events unarchive like input, except while restore is still settling.
     pub(crate) fn note_pane_agent_event(&mut self, pane_id: PaneId) {
         // Restore replays session refs through these events; they are not user activity.
@@ -1503,6 +1510,17 @@ mod tests {
 
         assert_eq!(state.workspaces[0].archived_at, None);
         assert!(!state.archive_inactive_workspaces(SystemTime::now()));
+    }
+
+    #[test]
+    fn activity_refreshes_the_clock_without_unarchiving() {
+        let mut state = archived_state(Duration::from_secs(3600));
+
+        state.note_workspace_activity(0);
+
+        assert!(state.workspaces[0].archived_at.is_some());
+        assert!(state.workspaces[0].last_activity_at.elapsed().unwrap() < Duration::from_secs(5));
+        assert!(state.archive_transitions.is_empty());
     }
 
     #[test]

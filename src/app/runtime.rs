@@ -108,6 +108,15 @@ impl App {
         unarchived
     }
 
+    /// Pane input from a TUI client: only a submit unarchives; anything else just resets the clock.
+    pub(crate) fn note_workspace_pane_input(&mut self, ws_idx: usize, submit: bool) -> bool {
+        if submit {
+            return self.note_workspace_input(ws_idx);
+        }
+        self.state.note_workspace_activity(ws_idx);
+        false
+    }
+
     pub(crate) fn can_render_now(&self, now: Instant) -> bool {
         match self.last_render_at {
             Some(last_render_at) => now.duration_since(last_render_at) >= MIN_RENDER_INTERVAL,
