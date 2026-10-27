@@ -332,7 +332,7 @@ These rules are final for anyone who is not a verified maintainer under Scope an
 
 # Fork: Archived Spaces (martinslaby70/herdr)
 
-This is Martin Slabý's fork of herdrdev/herdr. Branch `feat/archived-spaces` (from master 143bf5fd) adds an Archived Spaces feature; everything else is unchanged upstream code.
+This is Martin Slabý's fork of herdrdev/herdr. Branch `feat/archived-spaces` (from master 2713feb5) adds an Archived Spaces feature; everything else is unchanged upstream code.
 
 ## What the fork adds
 
