@@ -1777,3 +1777,30 @@ fn archive_toggle_is_absent_without_archived_spaces() {
     assert!(!frame_rows(&frame).join("\n").contains("Archived"));
     assert!(state.hits.archived_toggle.is_empty());
 }
+
+#[test]
+fn archived_space_rows_show_only_the_name() {
+    let mut projected = snapshot();
+    let mut archived = projected.workspaces[0].clone();
+    archived.workspace_id = "ws_old".into();
+    archived.label = "old-space".into();
+    archived.focused = false;
+    archived.archived_at = Some(100);
+    archived.branch = Some("archived-branch".into());
+    archived.git_ahead_behind = Some((3, 4));
+    projected.workspaces.push(archived);
+
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    state.archived_expanded = true;
+    let rows = frame_rows(&state.compose(106, 20).expect("expanded archive"));
+
+    assert!(rows.iter().any(|row| row.contains("old-space")));
+    assert!(!rows.iter().any(|row| row.contains("archived-branch")));
+    assert!(!rows
+        .iter()
+        .any(|row| row.contains("↑3") || row.contains("↓4")));
+    // The active space still shows its branch.
+    assert!(rows.iter().any(|row| row.contains("main")));
+}

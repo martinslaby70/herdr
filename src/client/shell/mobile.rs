@@ -830,54 +830,59 @@ fn mobile_items(
             } else {
                 String::new()
             };
-            items.push(MobileItem {
-                lines: vec![
-                    Line::from(vec![
-                        Span::styled(
-                            format!("  {connector}"),
-                            Style::default()
-                                .fg(palette.overlay0)
-                                .bg(background)
-                                .add_modifier(dim),
-                        ),
-                        Span::styled(
-                            if entry.archived {
-                                " "
-                            } else {
-                                status_icon(workspace.agent_status, config.status_indicators)
-                            },
-                            Style::default().fg(status).bg(background).add_modifier(dim),
-                        ),
-                        Span::styled(" ", Style::default().bg(background)),
-                        Span::styled(
-                            crate::ui::truncate_end(
-                                &format!("{} · {name}", endpoint.label),
-                                usize::from(content_width.saturating_sub(if entry.indented {
-                                    8
-                                } else {
-                                    5
-                                })),
-                            ),
-                            Style::default()
-                                .fg(foreground)
-                                .bg(background)
-                                .add_modifier(Modifier::BOLD | dim),
-                        ),
-                    ]),
-                    Line::from(Span::styled(
-                        crate::ui::truncate_end(
-                            &format!(
-                                "{detail_prefix}{branch} · {}{stale_detail}",
-                                compact_tab_status(endpoint.snapshot, workspace)
-                            ),
-                            usize::from(content_width),
-                        ),
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled(
+                        format!("  {connector}"),
                         Style::default()
                             .fg(palette.overlay0)
                             .bg(background)
                             .add_modifier(dim),
-                    )),
-                ],
+                    ),
+                    Span::styled(
+                        if entry.archived {
+                            " "
+                        } else {
+                            status_icon(workspace.agent_status, config.status_indicators)
+                        },
+                        Style::default().fg(status).bg(background).add_modifier(dim),
+                    ),
+                    Span::styled(" ", Style::default().bg(background)),
+                    Span::styled(
+                        crate::ui::truncate_end(
+                            &format!("{} · {name}", endpoint.label),
+                            usize::from(content_width.saturating_sub(if entry.indented {
+                                8
+                            } else {
+                                5
+                            })),
+                        ),
+                        Style::default()
+                            .fg(foreground)
+                            .bg(background)
+                            .add_modifier(Modifier::BOLD | dim),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    crate::ui::truncate_end(
+                        &format!(
+                            "{detail_prefix}{branch} · {}{stale_detail}",
+                            compact_tab_status(endpoint.snapshot, workspace)
+                        ),
+                        usize::from(content_width),
+                    ),
+                    Style::default()
+                        .fg(palette.overlay0)
+                        .bg(background)
+                        .add_modifier(dim),
+                )),
+            ];
+            if entry.archived {
+                // Archived rows show only the name.
+                lines.truncate(1);
+            }
+            items.push(MobileItem {
+                lines,
                 background,
                 target: Some(ClientMobileTarget::Workspace {
                     endpoint_id: endpoint.endpoint_id.clone(),

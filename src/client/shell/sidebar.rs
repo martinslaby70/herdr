@@ -763,9 +763,11 @@ pub(in crate::client::shell) fn workspace_rows(
         },
     );
     if workspace.archived_at.is_some() {
+        // Archived rows show only the space name, on a single line.
         for row in &mut rows {
-            row.retain(|token| !matches!(token.kind, crate::ui::ResolvedTokenKind::StateIcon));
+            row.retain(|token| matches!(token.kind, crate::ui::ResolvedTokenKind::Workspace(_)));
         }
+        rows.retain(|row| !row.is_empty());
     }
     rows
 }
